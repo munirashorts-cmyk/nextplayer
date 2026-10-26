@@ -13,8 +13,8 @@ jobs:
           java-version: 17
           distribution: temurin
       - uses: gradle/actions/setup-gradle@v6
-      - run: ./gradlew :app:assembleDebug
+      - run: ./gradlew :app:assembleRelease-with-debug-signing
       - uses: actions/upload-artifact@v7
         with:
-          name: nextplayer-arm64-v8a-debug
-          path: ./app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
+          name: nextplayer-arm64-release
+          path: ./app/build/outputs/apk/release-with-debug-signing/*arm64-v8a*.apk
