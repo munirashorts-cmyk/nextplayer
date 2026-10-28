@@ -8,13 +8,49 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+
+      - name: Apply thumbnail download fix
+        run: |
+          python3 - <<'EOF'
+          helper = '''
+          private fun String.isRemoteHttpUrl(): Boolean = startsWith(prefix = "http://", ignoreCase = true) ||
+              startsWith(prefix = "https://", ignoreCase = true)
+          '''
+          edits = [
+              (
+                  "feature/playlist/src/main/java/dev/anilbeesetti/nextplayer/feature/playlist/screens/detail/PlaylistDetailScreen.kt",
+                  ".data(data = item.tvgLogo ?: item.video?.uriString ?: item.uri)",
+                  ".data(data = item.tvgLogo ?: item.video?.uriString ?: item.uri.takeUnless { it.isRemoteHttpUrl() })",
+              ),
+              (
+                  "feature/player/src/main/java/dev/anilbeesetti/nextplayer/feature/player/ui/PlaylistView.kt",
+                  ".data(mediaItem.mediaId)",
+                  ".data(mediaItem.mediaId.takeUnless { it.isRemoteHttpUrl() })",
+              ),
+          ]
+          for path, old, new in edits:
+              s = open(path).read()
+              if "isRemoteHttpUrl" in s:
+                  print("already patched:", path)
+                  continue
+              assert s.count(old) == 1, "pattern not found in " + path
+              s = s.replace(old, new).rstrip("\n") + "\n" + helper
+              open(path, "w").write(s)
+              print("patched:", path)
+          EOF
+
       - uses: actions/setup-java@v5
         with:
           java-version: 17
           distribution: temurin
+
       - uses: gradle/actions/setup-gradle@v6
+
       - run: ./gradlew :app:assembleRelease-with-debug-signing
+
       - uses: actions/upload-artifact@v7
         with:
-          name: nextplayer-arm64-release
-          path: ./app/build/outputs/apk/release-with-debug-signing/*arm64-v8a*.apk
+          name: nextplayer-release-64-and-32-bit
+          path: |
+            ./app/build/outputs/apk/release-with-debug-signing/*arm64-v8a*.apk
+            ./app/build/outputs/apk/release-with-debug-signing/*armeabi-v7a*.apk
