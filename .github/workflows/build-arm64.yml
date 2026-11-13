@@ -39,6 +39,66 @@ jobs:
               print("patched:", path)
           EOF
 
+      - name: Make playlist import robust
+        run: |
+          python3 - <<'EOF'
+          path = "core/data/src/main/java/dev/anilbeesetti/nextplayer/core/data/playlist/M3UParser.kt"
+          s = open(path).read()
+          if "parseUrlOnce" in s:
+              print("already patched:", path)
+          else:
+              edits = [
+                  (
+                      "import kotlinx.coroutines.coroutineScope\n",
+                      "import kotlinx.coroutines.coroutineScope\nimport kotlinx.coroutines.delay\n",
+                  ),
+                  (
+                      "    suspend fun parseUrl(url: String): Result<M3UPlaylist> = withContext(context = ioDispatcher) {\n",
+                      "    suspend fun parseUrl(url: String): Result<M3UPlaylist> {\n"
+                      "        var result = parseUrlOnce(url = url)\n"
+                      "        var attempt = 1\n"
+                      "        while (result.exceptionOrNull() is IOException && attempt < 4) {\n"
+                      "            delay(timeMillis = 2_000L)\n"
+                      "            result = parseUrlOnce(url = url)\n"
+                      "            attempt++\n"
+                      "        }\n"
+                      "        return result\n"
+                      "    }\n"
+                      "\n"
+                      "    private suspend fun parseUrlOnce(url: String): Result<M3UPlaylist> = withContext(context = ioDispatcher) {\n",
+                  ),
+                  (
+                      "                connection.connectTimeout = NETWORK_TIMEOUT_MILLIS\n"
+                      "                connection.readTimeout = NETWORK_TIMEOUT_MILLIS\n",
+                      "                connection.connectTimeout = 20_000\n"
+                      "                connection.readTimeout = 30_000\n",
+                  ),
+                  (
+                      "    val gate = Semaphore(permits = 6)\n",
+                      "    val deadline = System.currentTimeMillis() + TITLE_LOOKUP_BUDGET_MILLIS\n"
+                      "    val gate = Semaphore(permits = 4)\n",
+                  ),
+                  (
+                      "async { gate.withPermit { fetchRemoteFileName(link = link) } }",
+                      "async {\n"
+                      "                gate.withPermit {\n"
+                      "                    if (System.currentTimeMillis() > deadline) null else fetchRemoteFileName(link = link)\n"
+                      "                }\n"
+                      "            }",
+                  ),
+                  (
+                      "private const val FILE_NAME_TIMEOUT_MILLIS = 8_000\n",
+                      "private const val FILE_NAME_TIMEOUT_MILLIS = 5_000\n"
+                      "private const val TITLE_LOOKUP_BUDGET_MILLIS = 20_000L\n",
+                  ),
+              ]
+              for old, new in edits:
+                  assert s.count(old) == 1, "pattern not found: " + old[:60]
+                  s = s.replace(old, new)
+              open(path, "w").write(s)
+              print("patched:", path)
+          EOF
+
       - uses: actions/setup-java@v5
         with:
           java-version: 17
@@ -54,3 +114,4 @@ jobs:
           path: |
             ./app/build/outputs/apk/release-with-debug-signing/*arm64-v8a*.apk
             ./app/build/outputs/apk/release-with-debug-signing/*armeabi-v7a*.apk
+            
