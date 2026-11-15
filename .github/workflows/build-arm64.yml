@@ -99,6 +99,70 @@ jobs:
               print("patched:", path)
           EOF
 
+      - name: Allow short playlist IDs
+        run: |
+          python3 - <<'EOF'
+          base = "feature/playlist/src/main/java/dev/anilbeesetti/nextplayer/feature/playlist/screens/list/"
+          vm = base + "PlaylistListViewModel.kt"
+          screen = base + "PlaylistListScreen.kt"
+          s = open(vm).read()
+          if "isDdStreamId" in s:
+              print("already patched:", vm)
+          else:
+              old = "        if (linkedCreationJob?.isActive == true) return\n        val source = url.trim()\n"
+              new = (
+                  "        if (linkedCreationJob?.isActive == true) return\n"
+                  "        val source = url.trim().let { if (it.isDdStreamId()) DD_STREAM_PLAYLIST_PREFIX + it else it }\n"
+              )
+              assert s.count(old) == 1, "pattern not found in " + vm
+              s = s.replace(old, new).rstrip("\n") + "\n" + (
+                  "\n"
+                  "private const val DD_STREAM_PLAYLIST_PREFIX = \"https://ddstream.dpdns.org/playlist?path=\"\n"
+                  "private val ddStreamIdRegex = Regex(pattern = \"[A-Za-z0-9]{20,}\")\n"
+                  "\n"
+                  "internal fun String.isDdStreamId(): Boolean = ddStreamIdRegex.matches(this)\n"
+              )
+              open(vm, "w").write(s)
+              print("patched:", vm)
+          s = open(screen).read()
+          if "isDdStreamId" in s:
+              print("already patched:", screen)
+          else:
+              old = "val isValid = remember(trimmedUrl) { trimmedUrl.isHttpUrl() }"
+              new = "val isValid = remember(trimmedUrl) { trimmedUrl.isHttpUrl() || trimmedUrl.isDdStreamId() }"
+              assert s.count(old) == 1, "pattern not found in " + screen
+              open(screen, "w").write(s.replace(old, new))
+              print("patched:", screen)
+          EOF
+
+      - name: Allow short stream IDs
+        run: |
+          python3 - <<'EOF'
+          path = "feature/network/src/main/java/dev/anilbeesetti/nextplayer/feature/network/screens/list/NetworkScreen.kt"
+          s = open(path).read()
+          if "ddStreamDownloadPrefix" in s:
+              print("already patched:", path)
+          else:
+              old = "onAction(NetworkAction.OpenStream(trimmedStreamUrl.toUri()))"
+              new = (
+                  "onAction(\n"
+                  "                                NetworkAction.OpenStream(\n"
+                  "                                    (\n"
+                  "                                        if (Regex(\"[A-Za-z0-9]{20,}\").matches(trimmedStreamUrl)) {\n"
+                  "                                            ddStreamDownloadPrefix + trimmedStreamUrl\n"
+                  "                                        } else {\n"
+                  "                                            trimmedStreamUrl\n"
+                  "                                        }\n"
+                  "                                        ).toUri(),\n"
+                  "                                ),\n"
+                  "                            )"
+              )
+              assert s.count(old) == 1, "pattern not found in " + path
+              s = s.replace(old, new).rstrip("\n") + "\n\nprivate const val ddStreamDownloadPrefix = \"https://ddstream.dpdns.org/download?path=\"\n"
+              open(path, "w").write(s)
+              print("patched:", path)
+          EOF
+
       - uses: actions/setup-java@v5
         with:
           java-version: 17
@@ -110,8 +174,5 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: nextplayer-release-64-and-32-bit
-          path: |
-            ./app/build/outputs/apk/release-with-debug-signing/*arm64-v8a*.apk
-            ./app/build/outputs/apk/release-with-debug-signing/*armeabi-v7a*.apk
-            
+          name: nextplayer-32bit-release
+          path: ./app/build/outputs/apk/release-with-debug-signing/*armeabi-v7a*.apk
